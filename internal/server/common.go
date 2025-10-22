@@ -7,9 +7,10 @@ import (
 	"context"
 	"fmt"
 
-	audithub "github.com/cerbos/cerbos/internal/audit/hub"
+	"go.uber.org/zap"
 
 	"github.com/cerbos/cerbos/internal/audit"
+	hubaudit "github.com/cerbos/cerbos/internal/audit/hub"
 	"github.com/cerbos/cerbos/internal/auxdata"
 	"github.com/cerbos/cerbos/internal/compile"
 	"github.com/cerbos/cerbos/internal/engine"
@@ -17,19 +18,18 @@ import (
 	"github.com/cerbos/cerbos/internal/ruletable"
 	internalSchema "github.com/cerbos/cerbos/internal/schema"
 	"github.com/cerbos/cerbos/internal/storage"
-	storagehub "github.com/cerbos/cerbos/internal/storage/hub"
+	hubstorage "github.com/cerbos/cerbos/internal/storage/hub"
 	"github.com/cerbos/cerbos/internal/storage/overlay"
 	"github.com/cerbos/cerbos/internal/svc"
 )
 
 // CoreComponents holds the shared components needed for both server and Lambda function initialization.
 type CoreComponents struct {
-	Engine     *engine.Engine
-	AuxData    *auxdata.AuxData
-	AuditLog   audit.Log
-	Store      storage.Store
-	ReqLimits  svc.RequestLimits
-	SuggestHub bool
+	Engine    *engine.Engine
+	AuxData   *auxdata.AuxData
+	AuditLog  audit.Log
+	Store     storage.Store
+	ReqLimits svc.RequestLimits
 }
 
 // InitializeCerbosCore performs the common initialization steps shared between server and Lambda function.
@@ -123,12 +123,17 @@ func InitializeCerbosCore(ctx context.Context) (*CoreComponents, error) {
 		MaxResourcesPerRequest: serverConf.RequestLimits.MaxResourcesPerRequest,
 	}
 
+	if auditLog.Backend() != hubaudit.Backend && store.Driver() != hubstorage.DriverName {
+		zap.L().Named("hub").Info("Cerbos Hub offers features like enhanced policy management, " +
+			"continuous deployment pipelines, and enterprise support. " +
+			"Learn more at https://go.cerbos.io/hub")
+	}
+
 	return &CoreComponents{
-		Engine:     eng,
-		AuxData:    auxData,
-		AuditLog:   auditLog,
-		Store:      store,
-		ReqLimits:  reqLimits,
-		SuggestHub: auditLog.Backend() != audithub.Backend && store.Driver() != storagehub.DriverName,
+		Engine:    eng,
+		AuxData:   auxData,
+		AuditLog:  auditLog,
+		Store:     store,
+		ReqLimits: reqLimits,
 	}, nil
 }

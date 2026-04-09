@@ -18,6 +18,7 @@ import (
 	effectv1 "github.com/cerbos/cerbos/api/genpb/cerbos/effect/v1"
 	enginev1 "github.com/cerbos/cerbos/api/genpb/cerbos/engine/v1"
 	policyv1 "github.com/cerbos/cerbos/api/genpb/cerbos/policy/v1"
+	runtimev1 "github.com/cerbos/cerbos/api/genpb/cerbos/runtime/v1"
 	"github.com/cerbos/cerbos/internal/compile"
 	"github.com/cerbos/cerbos/internal/conditions"
 	"github.com/cerbos/cerbos/internal/engine/tracer"
@@ -480,6 +481,56 @@ func TestRuleTableManager(t *testing.T) {
 			require.Equal(c, effectv1.Effect_EFFECT_DENY, output.Actions[action].GetEffect())
 		}, 1*time.Second, 50*time.Millisecond)
 	})
+}
+
+func TestAuditTrailBundleIDOnNoMatch(t *testing.T) {
+	ctx := t.Context()
+
+	protoRT := ruletable.NewProtoRuletable()
+	protoRT.Manifest = &runtimev1.RuleTable_Manifest{
+		BundleId: "TEST_BUNDLE_123",
+	}
+
+	rt, err := ruletable.NewRuleTable(protoRT)
+	require.NoError(t, err)
+
+	conf := &evaluator.Conf{}
+	conf.SetDefaults()
+
+	schemaMgr := schema.NewFromConf(ctx, nil, schema.NewConf(schema.EnforcementNone))
+
+	input := &enginev1.CheckInput{
+		RequestId: "no-match-test",
+		Resource: &enginev1.Resource{
+			Kind: "nonexistent_resource",
+			Id:   "1",
+		},
+		Principal: &enginev1.Principal{
+			Id:    "someone",
+			Roles: []string{"user"},
+		},
+		Actions: []string{"do_something"},
+	}
+
+	outputs, trail, err := rt.Check(ctx, conf, schemaMgr, []*enginev1.CheckInput{input})
+	require.NoError(t, err)
+	require.Len(t, outputs, 1)
+
+	// The audit trail should contain the bundle_id even when no policy matched
+	require.NotNil(t, trail)
+	require.NotEmpty(t, trail.EffectivePolicies, "audit trail should contain bundle metadata even on no-match")
+
+	// Check that bundle_id is present somewhere in the effective policies
+	found := false
+	for _, sa := range trail.EffectivePolicies {
+		if sa.Attributes != nil {
+			if v, ok := sa.Attributes["bundle_id"]; ok && v.GetStringValue() == "TEST_BUNDLE_123" {
+				found = true
+				break
+			}
+		}
+	}
+	require.True(t, found, "audit trail should contain bundle_id from manifest")
 }
 
 func addOrUpdatePolicy(t *testing.T, f string, p *policyv1.Policy, memFsys afero.Fs, idx index.Index, store *disk.Store) {

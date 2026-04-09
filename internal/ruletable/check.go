@@ -109,6 +109,7 @@ func (rt *RuleTable) check(ctx context.Context, tctx tracer.Context, schemaMgr s
 	}
 
 	trail := newAuditTrail(make(map[string]*policyv1.SourceAttributes))
+	rt.addBundleMetadataToTrail(trail)
 	result := newEvalResult(input.Actions, trail)
 
 	principalScopes, principalPolicyKey, principalPolicyFQN := rt.GetAllScopes(policyv1.Kind_KIND_PRINCIPAL, principalScope, input.Principal.Id, principalVersion, evalParams.LenientScopeSearch)
@@ -524,6 +525,31 @@ func (er *policyEvalResult) setEffect(action string, effect EffectInfo) {
 
 func newAuditTrail(srcAttr map[string]*policyv1.SourceAttributes) *auditv1.AuditTrail {
 	return &auditv1.AuditTrail{EffectivePolicies: maps.Clone(srcAttr)}
+}
+
+// bundleMetadataKey is the sentinel key used to store bundle-level metadata
+// in the audit trail's EffectivePolicies map, ensuring the bundle_id is always
+// present in the decision log even when no policy matches the request.
+const bundleMetadataKey = "_bundle"
+
+// addBundleMetadataToTrail populates the audit trail with bundle-level metadata
+// from the manifest, so that the bundle_id is always present regardless of
+// whether a policy matched the check request.
+func (rt *RuleTable) addBundleMetadataToTrail(trail *auditv1.AuditTrail) {
+	bundleID := rt.GetManifest().GetBundleId()
+	if bundleID == "" {
+		return
+	}
+
+	if trail.EffectivePolicies == nil {
+		trail.EffectivePolicies = make(map[string]*policyv1.SourceAttributes)
+	}
+
+	trail.EffectivePolicies[bundleMetadataKey] = &policyv1.SourceAttributes{
+		Attributes: map[string]*structpb.Value{
+			"bundle_id": structpb.NewStringValue(bundleID),
+		},
+	}
 }
 
 func checkInputToRequest(input *enginev1.CheckInput) *enginev1.Request {

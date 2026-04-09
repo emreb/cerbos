@@ -54,6 +54,7 @@ func (rt *RuleTable) planWithAuditTrail(
 
 	effectivePolicies := make(map[string]*policyv1.SourceAttributes)
 	auditTrail := &auditv1.AuditTrail{EffectivePolicies: effectivePolicies}
+	rt.addBundleMetadataToTrail(auditTrail)
 
 	if len(principalScopes) == 0 && len(resourceScopes) == 0 {
 		return noMatchPlanOutput(input, nil), auditTrail, nil
